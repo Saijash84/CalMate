@@ -5,8 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from src.database import init_db
 
-app = FastAPI()
+# Initialize database
 init_db()
+
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,4 +36,4 @@ async def chat_endpoint(chat_request: ChatRequest):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return ChatResponse(response={"error": str(e)})
+        return ChatResponse(response={"response": str(e)})

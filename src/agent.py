@@ -312,82 +312,168 @@ def handle_user_message(user_msg, messages=None):
     context_event = get_context_event_from_history(messages) if messages else None
     intent = extract_intent(user_msg)
     slots = extract_slots(user_msg, context_event)
-    response = ""
     result = {}
 
-    if intent == "book":
-        if slots["ambiguity"]:
-            response = "Please specify a clear date and time for your event."
-        else:
+    try:
+        if intent == "book":
+            if slots["ambiguity"]:
+                return {"response": "Please specify a clear date and time for your event."}
+            
             start_time = slots["datetime"]
             end_time = (dateparser.parse(slots["datetime"]) + timedelta(minutes=slots["duration"])).isoformat()
+            
             for b in list_bookings():
                 if b[3] == start_time and b[6] == 'active':
-                    response = "You already have an event at that time."
-                    break
-            else:
-                event_id = f"evt_{int(datetime.now().timestamp())}"
-                save_booking(slots["summary"], event_id, start_time, end_time, slots["timezone"])
-                response = f"Event '{slots['summary']}' booked for {start_time} ({slots['timezone']})."
-                if slots["attendees"]:
-                    response += f" Attendees: {', '.join(slots['attendees'])}."
-    elif intent == "cancel":
-        ref = slots.get("reference")
-        booking = find_booking_by_reference(ref, context_event) if ref else get_last_booking()
-        if booking:
-            cancel_booking(booking[0])
-            response = f"Cancelled event: '{booking[1]}' at {booking[3]}"
-        else:
-            response = "No matching event found to cancel."
-    elif intent == "edit":
-        ref = slots.get("reference")
-        booking = find_booking_by_reference(ref, context_event) if ref else get_last_booking()
-        if booking:
-            if slots["ambiguity"]:
-                response = "Please specify the new date/time or summary for your event."
-            else:
+                    return {"response": "You already have an event at that time."}
+            
+            event_id = f"evt_{int(datetime.now().timestamp())}"
+            save_booking(slots["summary"], event_id, start_time, end_time, slots["timezone"])
+            response = f"Event '{slots['summary']}' booked for {start_time} ({slots['timezone']})."
+            if slots["attendees"]:
+                response += f" Attendees: {', '.join(slots['attendees'])}."
+            return {"response": response}
+        
+        elif intent == "cancel":
+            ref = slots.get("reference")
+            booking = find_booking_by_reference(ref, context_event) if ref else get_last_booking()
+            if booking:
+                cancel_booking(booking[0])
+                return {"response": f"Cancelled event: '{booking[1]}' at {booking[3]}"}
+            return {"response": "No matching event found to cancel."}
+        
+        elif intent == "edit":
+            ref = slots.get("reference")
+            booking = find_booking_by_reference(ref, context_event) if ref else get_last_booking()
+            if booking:
+                if slots["ambiguity"]:
+                    return {"response": "Please specify the new date/time or summary for your event."}
+                
                 start_time = slots["datetime"]
                 end_time = (dateparser.parse(slots["datetime"]) + timedelta(minutes=slots["duration"])).isoformat()
                 update_booking(booking[0], slots["summary"], start_time, end_time, slots["timezone"])
-                response = f"Updated event to '{slots['summary']}' at {start_time} ({slots['timezone']})."
-        else:
-            response = "No matching event found to edit."
-    elif intent == "list":
-        bookings = list_bookings()
-        held = [b for b in bookings if dateparser.parse(b[3]) < datetime.now(pytz.UTC)]
-        upcoming = [b for b in bookings if dateparser.parse(b[3]) >= datetime.now(pytz.UTC)]
-        if upcoming or held:
-            response = ""
-            if upcoming:
-                response += "Here are your upcoming events:\n" + "\n".join(
-                    [format_event_natural(b) for b in upcoming]
+                return {"response": f"Updated event to '{slots['summary']}' at {start_time} ({slots['timezone']})."}
+            return {"response": "No matching event found to edit."}
+        
+        elif intent == "list":
+            bookings = list_bookings()
+            current_time = datetime.now(pytz.UTC)
+            
+            # Convert booking times to UTC and compare
+            held = []
+            upcoming = []
+            
+            for booking in bookings:
+                booking_time = datetime.fromisoformat(booking[3])
+                if booking_time < current_time:
+                    held.append(booking)
+                else:
+                    upcoming.append(booking)
+            
+            if upcoming or held:
+                response = ""
+                if upcoming:
+                    response += "Here are your upcoming events:\n" + "\n".join(
+                        [format_event_natural(b) for b in upcoming]
+                    )
+                if held:
+                    response += "\n\nHere are your past events:\n" + "\n".join(
+                        [format_event_natural(b) for b in held]
+                    )
+                return {"response": response}
+            return {"response": "You have no events scheduled."}
+        
+        elif intent == "check":
+            bookings = list_bookings()
+            current_time = datetime.now(pytz.UTC)
+            
+            # Get current day and tomorrow
+            current_day = current_time.date()
+            tomorrow = current_day + timedelta(days=1)
+            
+            # Get bookings for tomorrow
+            tomorrow_bookings = [b for b in bookings if 
+                               datetime.fromisoformat(b[3]).date() == tomorrow]
+            
+            # Define working hours (9 AM to 6 PM)
+            work_start = datetime.combine(tomorrow, datetime.min.time()) + timedelta(hours=9)
+            work_end = datetime.combine(tomorrow, datetime.min.time()) + timedelta(hours=18)
+            
+            # Convert to UTC
+            work_start = work_start.astimezone(pytz.UTC)
+            work_end = work_end.astimezone(pytz.UTC)
+            
+            # Sort bookings by start time
+            tomorrow_bookings.sort(key=lambda x: x[3])
+            
+            # Find free slots
+            free_slots = []
+            current_time = work_start
+            
+            for booking in tomorrow_bookings:
+                booking_start = datetime.fromisoformat(booking[3])
+                if booking_start > current_time:
+                    free_slots.append((current_time, booking_start))
+                current_time = datetime.fromisoformat(booking[4])
+            
+            if current_time < work_end:
+                free_slots.append((current_time, work_end))
+            
+            if free_slots:
+                response = "Here are your free time slots for tomorrow:\n" + "\n".join(
+                    [f"{slot[0].strftime('%I:%M %p')} to {slot[1].strftime('%I:%M %p')}" 
+                     for slot in free_slots]
                 )
-            if held:
-                response += "\n\nHere are your past events:\n" + "\n".join(
-                    [format_event_natural(b) for b in held]
-                )
-        else:
-            response = "You have no events scheduled."
-    elif intent == "check":
-        bookings = list_bookings()
-        if bookings:
-            response = "You are busy at:\n" + "\n".join(
-                [f"{b[3]} - {b[4]} ({b[5]})" for b in bookings]
+            else:
+                response = "You're all booked up tomorrow! No free slots available during working hours."
+            return {"response": response}
+        
+        elif intent == "help":
+            response = (
+                "Hi there! I'm CalMate, your friendly calendar assistant. \n"
+                "\n"
+                "I can help you with:\n"
+                "- Booking new events\n"
+                "- Canceling existing events\n"
+                "- Editing event details\n"
+                "- Listing your events\n"
+                "- Checking your free time\n"
+                "\n"
+                "Just tell me what you'd like to do! For example:\n"
+                "- Book a meeting tomorrow at 2pm\n"
+                "- Cancel my 3pm meeting\n"
+                "- Move my 10am meeting to 11am\n"
+                "- Show me my schedule for next week\n"
+                "- When am I free tomorrow?\n"
+                "\n"
+                "You can also ask me questions like:\n"
+                "- What's my schedule like this week?\n"
+                "- Do I have any meetings tomorrow?\n"
+                "- When is my next appointment?\n"
+                "\n"
+                "Feel free to chat with me in natural language!"
             )
+            return {"response": response}
+        
         else:
-            response = "You are free! No events scheduled."
-    elif intent == "help":
-        response = (
-            "You can ask me to book, cancel, edit, or list your events. "
-            "Examples:\n"
-            "- Book an event tomorrow at 10am for 1 hour with Alice\n"
-            "- Cancel my last event\n"
-            "- Edit my next event to Friday at 3pm\n"
-            "- What are my events this week?\n"
-            "- You can also use natural language like 'Add a call after lunch next Monday.'"
-        )
-    else:
-        response = "Sorry, I didn't understand. Please try again or type 'help'."
-
-    result.update({"intent": intent, **slots, "response": response})
-    return result
+            # Try to understand the message using OpenAI
+            try:
+                response = chat_with_openai(messages)
+            except Exception as e:
+                response = f"I'm sorry, I couldn't understand that. Could you please rephrase your request?"
+            return {"response": response}
+            
+        # Add assistant message
+        messages.append({
+            "role": "assistant",
+            "content": response
+        })
+        
+        return {"response": response}
+        
+    except Exception as e:
+        error_msg = f"I'm sorry, I encountered an error: {str(e)}"
+        messages.append({
+            "role": "assistant",
+            "content": error_msg
+        })
+        return {"response": error_msg}

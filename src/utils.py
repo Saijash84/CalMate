@@ -1,5 +1,6 @@
 import re
 import dateparser
+import pytz
 from datetime import datetime, timedelta
 
 
@@ -81,12 +82,45 @@ def format_event_natural(event):
     """
     Formats an event in natural language.
     """
-    start = datetime.fromisoformat(event['start_time'])
-    end = datetime.fromisoformat(event['end_time'])
+    if isinstance(event, dict):
+        # Dictionary format
+        start = datetime.fromisoformat(event['start_time'])
+        end = datetime.fromisoformat(event['end_time'])
+        summary = event['summary']
+        timezone = event.get('timezone', 'UTC')
+    else:
+        # Tuple format from database
+        _, summary, _, start_time, end_time, timezone, _ = event
+        start = datetime.fromisoformat(start_time)
+        end = datetime.fromisoformat(end_time)
     
-    return f"Event: {event['summary']}\n" \
-           f"When: {start.strftime('%Y-%m-%d %H:%M')} to {end.strftime('%H:%M')}\n" \
-           f"Attendees: {', '.join(event.get('attendees', []))}"
+    # Convert to UTC if timezone is not already set
+    if start.tzinfo is None:
+        start = pytz.UTC.localize(start)
+    if end.tzinfo is None:
+        end = pytz.UTC.localize(end)
+    
+    # Convert to local timezone for display
+    if timezone:
+        start = start.astimezone(pytz.timezone(timezone))
+        end = end.astimezone(pytz.timezone(timezone))
+    
+    # Format time in 12-hour format with AM/PM
+    start_time_str = start.strftime('%I:%M %p')
+    end_time_str = end.strftime('%I:%M %p')
+    
+    # Get day name and date
+    day_name = start.strftime('%A')
+    date_str = start.strftime('%B %d, %Y')
+    
+    # Format the time range
+    time_range = f"{start_time_str} to {end_time_str}"
+    
+    # Return formatted string
+    if summary:
+        return f"{summary} on {day_name} ({date_str}) from {time_range}"
+    else:
+        return f"Busy from {time_range} on {day_name} ({date_str})"
 
 
 def find_booking_by_reference(reference, context_event=None):
