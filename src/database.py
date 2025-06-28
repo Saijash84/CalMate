@@ -2,6 +2,9 @@
 
 import sqlite3
 from datetime import datetime
+from typing import List, Dict, Optional, Any
+
+from src.utils import extract_intent, extract_slots, extract_attendees, extract_reference, find_booking_by_reference, format_event_natural
 
 DB_FILE = "bookings.db"
 

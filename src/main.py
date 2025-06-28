@@ -1,9 +1,9 @@
 # main.py
-from .agent import handle_user_message
+from src.agent import handle_user_message
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from .database import init_db
+from src.database import init_db
 
 app = FastAPI()
 init_db()

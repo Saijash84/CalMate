@@ -8,7 +8,8 @@ import pytz
 from dateparser.search import search_dates
 from langgraph.graph import StateGraph
 
-from calendar_utils import GoogleCalendarUtils
+from src.calendar_utils import GoogleCalendarUtils
+from src.utils import extract_intent, extract_attendees, extract_reference, extract_slots, format_event_natural, find_booking_by_reference
 
 import os
 import openai
@@ -16,7 +17,7 @@ import openai
 import re
 import dateparser
 from datetime import datetime, timedelta
-from database import (
+from src.database import (
     save_booking, list_bookings, get_last_booking, cancel_booking, update_booking, get_booking_by_id
 )
 
@@ -280,14 +281,6 @@ def find_booking_by_reference(reference, context_event=None):
             return b
     return None
 
-
-def format_event_natural(b):
-    dt = dateparser.parse(b[3])
-    if not dt:
-        return f"Your event '{b[1]}' (time unknown)."
-    dt_local = dt.astimezone(pytz.timezone(b[5])) if b[5] != "UTC" else dt
-    date_str = dt_local.strftime("%A, %B %d at %I:%M %p")
-    return f"Your event '{b[1]}' is scheduled for {date_str} ({b[5]}). Status: {b[6]}."
 
 
 def get_context_event_from_history(messages):
