@@ -18,19 +18,6 @@ A FastAPI-based calendar booking assistant that integrates with Google Calendar 
 ├── Backend/           # Backend FastAPI application
 ├── Frontend/         # Streamlit frontend application
 ├── src/              # Main source code
-│   ├── __init__.py
-│   ├── agent.py      # NLP agent implementation
-│   ├── calendar_utils.py  # Google Calendar integration
-│   ├── database.py   # Database operations
-│   ├── main.py       # FastAPI application
-│   └── utils.py      # Utility functions
-├── requirements.txt   # Python dependencies
-├── render.yaml       # Render deployment configuration
-├── runtime.txt       # Runtime specification
-└── README.md         # Documentation
-```
-
-## Setup
 
 1. Install dependencies:
 ```bash
@@ -38,11 +25,12 @@ pip install -r requirements.txt
 ```
 
 2. Set up environment variables:
-Create a `.env` file with your Google Calendar API credentials:
+Create a `.env` file with the following variables:
 ```
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback
+OPENAI_API_KEY=your_openai_key
 ```
 
 3. Run the backend:
@@ -56,17 +44,48 @@ cd Frontend
 streamlit run streamlit_app.py
 ```
 
-## Deployment
+### Deploy to Render
 
-The application can be deployed to Render with two services:
-1. Backend API (FastAPI)
-2. Frontend (Streamlit)
+1. Create a Render account if you don't have one
+
+2. Set up environment variables in Render:
+   - GOOGLE_CLIENT_ID
+   - GOOGLE_CLIENT_SECRET
+   - GOOGLE_REDIRECT_URI
+   - OPENAI_API_KEY
+
+3. Connect your GitHub repository to Render
+
+4. Render will automatically deploy both services using the configuration in `render.yaml`
 
 ## Usage
 
-You can interact with the calendar agent through:
-1. The Streamlit frontend interface
-2. Direct API calls to the FastAPI endpoints
+The application provides a conversational interface where you can interact with the calendar agent using natural language. You can:
+- Book events: "Book a meeting with John tomorrow at 2pm"
+- Cancel events: "Cancel my meeting with John"
+- Edit events: "Move my meeting with John to 3pm"
+- Check availability: "When am I free tomorrow?"
+- List events: "What's my schedule for this week?"
+
+## Project Structure
+
+```
+.
+├── Backend/           # Backend code (FastAPI)
+├── Frontend/          # Frontend code (Streamlit)
+├── src/              # Source code
+│   ├── __init__.py
+│   ├── agent.py      # NLP agent implementation
+│   ├── calendar_utils.py  # Google Calendar integration
+│   ├── database.py   # Database operations
+│   ├── main.py       # FastAPI application
+│   └── utils.py      # Utility functions
+├── requirements.txt   # Python dependencies
+├── render.yaml        # Render deployment configuration
+├── Procfile          # Process configuration
+├── runtime.txt       # Python runtime version
+└── README.md         # Documentation
+```
 
 ## Security
 

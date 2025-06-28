@@ -3,15 +3,25 @@ services:
     name: calendar-api
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn src.main:app --host=0.0.0.0 --port=10000
+    buildCommand: |
+      pip install -r requirements.txt
+      python -m uvicorn src.main:app --reload
+    startCommand: uvicorn src.main:app --host=0.0.0.0 --port 10000
     env:
       - key: PYTHONPATH
         value: .
+      - key: GOOGLE_CLIENT_ID
+        value: "${GOOGLE_CLIENT_ID}"
+      - key: GOOGLE_CLIENT_SECRET
+        value: "${GOOGLE_CLIENT_SECRET}"
+      - key: GOOGLE_REDIRECT_URI
+        value: "${GOOGLE_REDIRECT_URI}"
+      - key: OPENAI_API_KEY
+        value: "${OPENAI_API_KEY}"
 
   - type: web
     name: calendar-frontend
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run Frontend/streamlit_app.py --server.port $PORT
+    startCommand: streamlit run Frontend/streamlit_app.py --server.port $PORT --server.address 0.0.0.0
