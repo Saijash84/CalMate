@@ -1,7 +1,7 @@
 fastapi==0.104.1
 uvicorn==0.24.0
-langchain==0.0.316
-langchain-core==0.1.16
+langchain==0.1.0
+langchain-core==0.2.31
 langgraph==0.1.1
 python-dotenv==1.0.0
 google-api-python-client==2.108.0
