@@ -13,10 +13,12 @@ services:
         value: "${GOOGLE_CLIENT_ID}"
       - key: GOOGLE_CLIENT_SECRET
         value: "${GOOGLE_CLIENT_SECRET}"
-      - key: GOOGLE_REDIRECT_URI
-        value: "${GOOGLE_REDIRECT_URI}"
-      - key: OPENAI_API_KEY
-        value: "${OPENAI_API_KEY}"
+      - key: GOOGLE_TOKEN_PATH
+        value: "token.json"
+      - key: GOOGLE_CLIENT_SECRET_PATH
+        value: "credentials.json"
+      - key: BACKEND_URL
+        value: "https://calendar-api.onrender.com"
 
   - type: web
     name: calendar-frontend
@@ -24,3 +26,8 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run Frontend/streamlit_app.py --server.port $PORT --server.address 0.0.0.0
+    env:
+      - key: FRONTEND_URL
+        value: "https://calendar-frontend.onrender.com"
+      - key: BACKEND_URL
+        value: "https://calendar-api.onrender.com"

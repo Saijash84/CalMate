@@ -1,15 +1,18 @@
-# Calendar Agent
+# CalMate - Calendar Management Assistant
 
-A FastAPI-based calendar booking assistant that integrates with Google Calendar and provides natural language processing capabilities for booking, editing, and managing calendar events.
+A conversational AI agent that helps users manage their Google Calendar through natural language interactions. The agent can book meetings, check availability, cancel bookings, and view schedules using a modern Streamlit interface.
 
 ## Features
 
-- Natural language processing for booking events
+- Natural language booking: "Book a meeting with John tomorrow at 2pm"
+- Availability checking: "When am I free tomorrow?"
+- Meeting cancellation: "Cancel my meeting with John"
+- Schedule viewing: "What's my schedule for this week?"
+- Modern Streamlit interface with chat and quick actions
 - Integration with Google Calendar
-- Event management (book, edit, cancel)
-- Availability checking
 - Secure OAuth2 authentication
-- Streamlit-based frontend interface
+- Persistent chat history
+- Real-time availability checking
 
 ## Project Structure
 
@@ -18,6 +21,8 @@ A FastAPI-based calendar booking assistant that integrates with Google Calendar 
 ├── Backend/           # Backend FastAPI application
 ├── Frontend/         # Streamlit frontend application
 ├── src/              # Main source code
+
+## Setup Instructions
 
 1. Install dependencies:
 ```bash
@@ -29,17 +34,19 @@ Create a `.env` file with the following variables:
 ```
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/callback
-OPENAI_API_KEY=your_openai_key
+GOOGLE_TOKEN_PATH=token.json
+GOOGLE_CLIENT_SECRET_PATH=credentials.json
+BACKEND_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:8501
 ```
 
-3. Run the backend:
+3. Run the services:
 ```bash
-python -m uvicorn src.main:app --reload
-```
+# In one terminal (backend)
+cd src
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-4. Run the frontend:
-```bash
+# In another terminal (frontend)
 cd Frontend
 streamlit run streamlit_app.py
 ```
@@ -71,19 +78,14 @@ The application provides a conversational interface where you can interact with 
 
 ```
 .
-├── Backend/           # Backend code (FastAPI)
-├── Frontend/          # Frontend code (Streamlit)
-├── src/              # Source code
+├── Frontend/          # Streamlit frontend application
+├── src/              # Backend source code
 │   ├── __init__.py
-│   ├── agent.py      # NLP agent implementation
+│   ├── agent.py      # LangGraph-based conversation agent
 │   ├── calendar_utils.py  # Google Calendar integration
 │   ├── database.py   # Database operations
-│   ├── main.py       # FastAPI application
-│   └── utils.py      # Utility functions
+│   └── main.py       # FastAPI application
 ├── requirements.txt   # Python dependencies
-├── render.yaml        # Render deployment configuration
-├── Procfile          # Process configuration
-├── runtime.txt       # Python runtime version
 └── README.md         # Documentation
 ```
 

@@ -1,91 +1,295 @@
-# agent.py
-
+from langgraph import StateGraph, State
+from typing import Dict, Any, Optional, List
 import datetime
-import json
-from typing import Dict, Any
-
 import pytz
-from dateparser.search import search_dates
-from langgraph.graph import StateGraph
-
-from src.calendar_utils import GoogleCalendarUtils
-from src.utils import extract_intent, extract_attendees, extract_reference, extract_slots, format_event_natural, find_booking_by_reference
-
-import os
-import openai
-
-import re
 import dateparser
-from datetime import datetime, timedelta
-from src.database import (
-    save_booking, list_bookings, get_last_booking, cancel_booking, update_booking, get_booking_by_id
-)
+import re
+import json
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import os
+from dotenv import load_dotenv
 
-calendar_utils = GoogleCalendarUtils()
+# Load environment variables
+load_dotenv()
 
+# Google Calendar API credentials
+SCOPES = ['https://www.googleapis.com/auth/calendar']
 
-class BookingState(dict):
-    pass
+class BookingState(State):
+    slots: Dict[str, Any] = {}
+    response: Optional[str] = None
+    busy: bool = False
+    context_event: Optional[Dict[str, Any]] = None
 
-
-def parse_input_node(user_msg: str):
-    """
-    Calls OpenAI API to extract calendar slot info from user_msg using a strict system prompt.
-    """
-    SYSTEM_PROMPT = '''
-You are a helpful AI assistant that helps users manage their calendar. The user may ask to check availability, book a meeting, or cancel one.
-
-Extract the following information from the user's message and respond with a JSON object:
-
-1. `intent`: One of the following:
-   - "book" (if user wants to schedule something)
-   - "check" (if user is asking when they're free or available)
-   - "cancel" (if they want to remove a booking)
-   - "unknown" (if none of the above apply)
-
-2. `datetime`: A date/time string in ISO 8601 format (e.g. "2025-06-28T14:00:00+05:30")  
-3. `duration`: Length of the meeting in minutes (default to 30 if not given)  
-4. `summary`: What the meeting is about (default: "Meeting")  
-5. `timezone`: If the user mentioned a timezone like "Asia/Kolkata", return it; otherwise "UTC"  
-6. `ambiguity`: true if the time is vague (e.g. "next week"), or if essential information is missing
-
-Respond in **strict JSON format only**.
-
-Example response:
-```json
-{
-  "intent": "book",
-  "datetime": "2025-06-29T15:00:00+05:30",
-  "duration": 30,
-  "summary": "Team sync",
-  "timezone": "Asia/Kolkata",
-  "ambiguity": false
-}
-```
-'''
-    openai.api_key = os.environ.get("OPENAI_API_KEY")
-    if not openai.api_key:
-        raise RuntimeError("OPENAI_API_KEY environment variable not set.")
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg}
-        ],
-        temperature=0.0,
-        max_tokens=512
-    )
-    # Extract JSON from response
-    text = response["choices"][0]["message"]["content"]
-    match = re.search(r'\{[\s\S]*\}', text)
-    if not match:
-        raise ValueError(f"No JSON found in LLM output: {text}")
+def parse_input_node(state: Dict[str, Any], user_msg: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Parse user input and extract relevant information"""
     try:
-        result = json.loads(match.group(0))
+        # Extract intent
+        intent = extract_intent(user_msg)
+        
+        # Extract datetime
+        datetime_obj = extract_datetime(user_msg)
+        
+        # Extract duration
+        duration = extract_duration(user_msg)
+        
+        # Extract attendees
+        attendees = extract_attendees(user_msg)
+        
+        # Format response
+        state["slots"] = {
+            "intent": intent,
+            "datetime": datetime_obj.isoformat() if datetime_obj else None,
+            "duration": duration,
+            "attendees": attendees,
+            "raw": user_msg
+        }
+        
+        return state
     except Exception as e:
-        raise ValueError(f"Invalid JSON from LLM: {text}") from e
-    return result
+        state["response"] = f"Error parsing input: {str(e)}"
+        return state
 
+def extract_intent(user_msg: str) -> str:
+    """Extract intent from user message"""
+    msg = user_msg.lower()
+    if any(w in msg for w in ["cancel", "delete", "remove"]):
+        return "cancel"
+    if any(w in msg for w in ["edit", "reschedule", "move", "change"]):
+        return "edit"
+    if any(w in msg for w in ["book", "schedule", "set up", "add"]):
+        return "book"
+    if any(w in msg for w in ["list", "show", "what", "upcoming", "events", "history", "held"]):
+        return "list"
+    if any(w in msg for w in ["free", "available", "slots"]):
+        return "check"
+    if any(w in msg for w in ["help", "how"]):
+        return "help"
+    return "unknown"
+
+def extract_datetime(text: str) -> Optional[datetime.datetime]:
+    """Extract datetime from text using dateparser"""
+    try:
+        return dateparser.parse(text)
+    except:
+        return None
+
+def extract_duration(text: str) -> int:
+    """Extract duration in minutes from text"""
+    duration = re.search(r'(\d+)\s*(?:hour|hr|minute|min)', text.lower())
+    if duration:
+        value = int(duration.group(1))
+        unit = "hour" if "hour" in text.lower() else "minute"
+        return value * 60 if unit == "hour" else value
+    return 30  # Default duration
+
+def extract_attendees(text: str) -> List[str]:
+    """Extract attendees from text"""
+    attendees = re.findall(r'with\s+([\w\s]+)', text.lower())
+    return [a.strip() for a in attendees if a.strip()]
+
+def parse_input_node(user_msg: str, history: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Parse user input and extract relevant information"""
+    try:
+        # Extract intent
+        intent = extract_intent(user_msg)
+        
+        # Extract datetime
+        datetime_obj = extract_datetime(user_msg)
+        
+        # Extract duration
+        duration = extract_duration(user_msg)
+        
+        # Extract attendees
+        attendees = extract_attendees(user_msg)
+        
+        # Format response
+        response = {
+            "intent": intent,
+            "datetime": datetime_obj.isoformat() if datetime_obj else None,
+            "duration": duration,
+            "attendees": attendees,
+            "raw": user_msg
+        }
+        
+        return response
+    except Exception as e:
+        return {
+            "operation": "error",
+            "details": f"Failed to parse input: {str(e)}"
+        }
+
+def handle_user_message(parsed_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle user message based on parsed input"""
+    try:
+        intent = parsed_input.get("intent", "unknown")
+        
+        if intent == "book":
+            return handle_booking(parsed_input)
+        elif intent == "check":
+            return handle_availability_check(parsed_input)
+        elif intent == "cancel":
+            return handle_cancellation(parsed_input)
+        elif intent == "view":
+            return handle_view_schedule(parsed_input)
+        else:
+            return {
+                "operation": "unknown_intent",
+                "details": "I'm not sure what you want to do. Please try again."
+            }
+    except Exception as e:
+        return {
+            "operation": "error",
+            "details": f"Failed to handle message: {str(e)}"
+        }
+
+def handle_booking(parsed_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle booking a new event"""
+    try:
+        # Extract booking details
+        summary = parsed_input.get("summary", "Meeting")
+        start_time = parsed_input.get("datetime")
+        duration = parsed_input.get("duration", 30)
+        attendees = parsed_input.get("attendees", [])
+        
+        if not calendar_available:
+            return {
+                "operation": "warning",
+                "details": "Calendar service is not available. Running in simulation mode."
+            }
+            
+        # Create event details
+        event = {
+            'summary': summary,
+            'start': {
+                'dateTime': start_time.isoformat(),
+                'timeZone': parsed_input.get("timezone", "UTC")
+            },
+            'end': {
+                'dateTime': (start_time + datetime.timedelta(minutes=duration)).isoformat(),
+                'timeZone': parsed_input.get("timezone", "UTC")
+            },
+            'attendees': [{'email': attendee} for attendee in attendees]
+        }
+        
+        # Create the event
+        created_event = calendar_utils.create_event(event)
+        
+        return {
+            "operation": "booked",
+            "details": f"Successfully booked meeting: {summary} at {start_time.strftime('%I:%M %p')}"
+        }
+    except Exception as e:
+        return {
+            "operation": "error",
+            "details": f"Failed to book meeting: {str(e)}"
+        }
+
+def handle_availability_check(parsed_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle checking calendar availability"""
+    try:
+        start_time = parsed_input.get("datetime")
+        duration = parsed_input.get("duration", 30)
+        
+        if not calendar_available:
+            return {
+                "operation": "warning",
+                "details": "Calendar service is not available. Running in simulation mode."
+            }
+            
+        end_time = start_time + datetime.timedelta(minutes=duration)
+        
+        events = calendar_utils.get_calendar_events(start_time, end_time)
+        
+        if not events:
+            return {
+                "operation": "available",
+                "details": f"You are free from {start_time.strftime('%I:%M %p')} to {end_time.strftime('%I:%M %p')}"
+            }
+        else:
+            return {
+                "operation": "busy",
+                "details": f"You have meetings during that time: {', '.join(e['summary'] for e in events)}"
+            }
+    except Exception as e:
+        return {
+            "operation": "error",
+            "details": f"Failed to check availability: {str(e)}"
+        }
+
+def handle_cancellation(parsed_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle canceling an event"""
+    try:
+        summary = parsed_input.get("summary", "Meeting")
+        
+        if not calendar_available:
+            return {
+                "operation": "warning",
+                "details": "Calendar service is not available. Running in simulation mode."
+            }
+            
+        # Find and delete the event
+        events = calendar_utils.get_calendar_events(
+            datetime.datetime.now() - datetime.timedelta(days=7),
+            datetime.datetime.now() + datetime.timedelta(days=7)
+        )
+        
+        for event in events:
+            if event['summary'].lower() == summary.lower():
+                calendar_utils.delete_event(event['id'])
+                return {
+                    "operation": "canceled",
+                    "details": f"Successfully canceled meeting: {summary}"
+                }
+        
+        return {
+            "operation": "not_found",
+            "details": f"No meeting found with title: {summary}"
+        }
+    except Exception as e:
+        return {
+            "operation": "error",
+            "details": f"Failed to cancel meeting: {str(e)}"
+        }
+
+def handle_view_schedule(parsed_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle viewing calendar schedule"""
+    try:
+        start_time = parsed_input.get("datetime")
+        duration = parsed_input.get("duration", 1440)  # Default to full day
+        
+        if not calendar_available:
+            return {
+                "operation": "warning",
+                "details": "Calendar service is not available. Running in simulation mode."
+            }
+            
+        end_time = start_time + datetime.timedelta(minutes=duration)
+        
+        events = calendar_utils.get_calendar_events(start_time, end_time)
+        
+        if not events:
+            return {
+                "operation": "viewed",
+                "details": "No meetings scheduled during that time"
+            }
+        else:
+            event_list = "\n".join([
+                f"- {e['summary']} at {datetime.datetime.fromisoformat(e['start']['dateTime']).strftime('%I:%M %p')}"
+                for e in events
+            ])
+            return {
+                "operation": "viewed",
+                "details": f"Your meetings:\n{event_list}"
+            }
+    except Exception as e:
+        return {
+            "operation": "error",
+            "details": f"Failed to view schedule: {str(e)}"
+        }
 
 def ask_for_missing_info_node(state: dict):
     slots = state.get("slots", {})
@@ -309,18 +513,18 @@ def handle_user_message(user_msg, messages=None):
     user_msg: str, the current user message
     messages: list of dicts, the chat history (each dict: {"role": "user"/"assistant", "content": str})
     """
-    context_event = get_context_event_from_history(messages) if messages else None
-    intent = extract_intent(user_msg)
-    slots = extract_slots(user_msg, context_event)
-    result = {}
-
     try:
+        context_event = get_context_event_from_history(messages) if messages else None
+        intent = extract_intent(user_msg)
+        slots = extract_slots(user_msg, context_event)
+        result = {}
+
         if intent == "book":
             if slots["ambiguity"]:
                 return {"response": "Please specify a clear date and time for your event."}
             
             start_time = slots["datetime"]
-            end_time = (dateparser.parse(slots["datetime"]) + timedelta(minutes=slots["duration"])).isoformat()
+            end_time = (dateparser.parse(slots["datetime"]) + datetime.timedelta(minutes=slots["duration"])).isoformat()
             
             for b in list_bookings():
                 if b[3] == start_time and b[6] == 'active':
@@ -349,131 +553,31 @@ def handle_user_message(user_msg, messages=None):
                     return {"response": "Please specify the new date/time or summary for your event."}
                 
                 start_time = slots["datetime"]
-                end_time = (dateparser.parse(slots["datetime"]) + timedelta(minutes=slots["duration"])).isoformat()
+                end_time = (dateparser.parse(slots["datetime"]) + datetime.timedelta(minutes=slots["duration"])).isoformat()
                 update_booking(booking[0], slots["summary"], start_time, end_time, slots["timezone"])
                 return {"response": f"Updated event to '{slots['summary']}' at {start_time} ({slots['timezone']})."}
             return {"response": "No matching event found to edit."}
         
         elif intent == "list":
             bookings = list_bookings()
-            current_time = datetime.now(pytz.UTC)
-            
-            # Convert booking times to UTC and compare
-            held = []
-            upcoming = []
-            
-            for booking in bookings:
-                booking_time = datetime.fromisoformat(booking[3])
-                if booking_time < current_time:
-                    held.append(booking)
-                else:
-                    upcoming.append(booking)
-            
-            if upcoming or held:
-                response = ""
-                if upcoming:
-                    response += "Here are your upcoming events:\n" + "\n".join(
-                        [format_event_natural(b) for b in upcoming]
-                    )
-                if held:
-                    response += "\n\nHere are your past events:\n" + "\n".join(
-                        [format_event_natural(b) for b in held]
-                    )
-                return {"response": response}
-            return {"response": "You have no events scheduled."}
+            if not bookings:
+                return {"response": "No events found."}
+            response = "Your events:\n"
+            for b in bookings:
+                response += f"- {b[1]} at {b[3]} ({b[5]})\n"
+            return {"response": response}
         
         elif intent == "check":
-            bookings = list_bookings()
-            current_time = datetime.now(pytz.UTC)
-            
-            # Get current day and tomorrow
-            current_day = current_time.date()
-            tomorrow = current_day + timedelta(days=1)
-            
-            # Get bookings for tomorrow
-            tomorrow_bookings = [b for b in bookings if 
-                               datetime.fromisoformat(b[3]).date() == tomorrow]
-            
-            # Define working hours (9 AM to 6 PM)
-            work_start = datetime.combine(tomorrow, datetime.min.time()) + timedelta(hours=9)
-            work_end = datetime.combine(tomorrow, datetime.min.time()) + timedelta(hours=18)
-            
-            # Convert to UTC
-            work_start = work_start.astimezone(pytz.UTC)
-            work_end = work_end.astimezone(pytz.UTC)
-            
-            # Sort bookings by start time
-            tomorrow_bookings.sort(key=lambda x: x[3])
-            
-            # Find free slots
-            free_slots = []
-            current_time = work_start
-            
-            for booking in tomorrow_bookings:
-                booking_start = datetime.fromisoformat(booking[3])
-                if booking_start > current_time:
-                    free_slots.append((current_time, booking_start))
-                current_time = datetime.fromisoformat(booking[4])
-            
-            if current_time < work_end:
-                free_slots.append((current_time, work_end))
-            
-            if free_slots:
-                response = "Here are your free time slots for tomorrow:\n" + "\n".join(
-                    [f"{slot[0].strftime('%I:%M %p')} to {slot[1].strftime('%I:%M %p')}" 
-                     for slot in free_slots]
-                )
-            else:
-                response = "You're all booked up tomorrow! No free slots available during working hours."
-            return {"response": response}
+            start_time = slots["datetime"]
+            end_time = (dateparser.parse(slots["datetime"]) + datetime.timedelta(minutes=slots["duration"])).isoformat()
+            available = check_availability(start_time, end_time)
+            if available:
+                return {"response": f"You are free from {start_time} to {end_time}"}
+            return {"response": f"You have events during that time"}
         
         elif intent == "help":
-            response = (
-                "Hi there! I'm CalMate, your friendly calendar assistant. \n"
-                "\n"
-                "I can help you with:\n"
-                "- Booking new events\n"
-                "- Canceling existing events\n"
-                "- Editing event details\n"
-                "- Listing your events\n"
-                "- Checking your free time\n"
-                "\n"
-                "Just tell me what you'd like to do! For example:\n"
-                "- Book a meeting tomorrow at 2pm\n"
-                "- Cancel my 3pm meeting\n"
-                "- Move my 10am meeting to 11am\n"
-                "- Show me my schedule for next week\n"
-                "- When am I free tomorrow?\n"
-                "\n"
-                "You can also ask me questions like:\n"
-                "- What's my schedule like this week?\n"
-                "- Do I have any meetings tomorrow?\n"
-                "- When is my next appointment?\n"
-                "\n"
-                "Feel free to chat with me in natural language!"
-            )
-            return {"response": response}
+            return {"response": "I can help you with:\n- Booking new events\n- Cancelling events\n- Editing events\n- Listing your events\n- Checking availability\nJust let me know what you'd like to do!"}
         
-        else:
-            # Try to understand the message using OpenAI
-            try:
-                response = chat_with_openai(messages)
-            except Exception as e:
-                response = f"I'm sorry, I couldn't understand that. Could you please rephrase your request?"
-            return {"response": response}
-            
-        # Add assistant message
-        messages.append({
-            "role": "assistant",
-            "content": response
-        })
-        
-        return {"response": response}
-        
+        return {"response": "I'm not sure what you want to do. Try asking for help."}
     except Exception as e:
-        error_msg = f"I'm sorry, I encountered an error: {str(e)}"
-        messages.append({
-            "role": "assistant",
-            "content": error_msg
-        })
-        return {"response": error_msg}
+        return {"response": f"Error processing request: {str(e)}"}

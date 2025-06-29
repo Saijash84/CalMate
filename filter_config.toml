@@ -1,0 +1,2 @@
+[path]
+regex = "token.json|Backend/token.json|.env"
