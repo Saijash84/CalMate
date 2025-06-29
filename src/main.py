@@ -15,9 +15,14 @@ app = FastAPI(
 )
 
 # Configure CORS to allow specific origins
+import os
+
+# Get frontend URL from environment variable
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:8501")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501", "https://your-streamlit-domain.com"],  # Update with your actual domains
+    allow_origins=["http://localhost:8501", "https://calmate-frontend.onrender.com"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
