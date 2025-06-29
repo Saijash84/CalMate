@@ -14,13 +14,23 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Configure CORS to allow specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8501", "https://your-streamlit-domain.com"],  # Update with your actual domains
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Content-Type", "Authorization"],
 )
+
+# Add exception handler
+@app.exception_handler(Exception)
+async def exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc)},
+    )
 
 @app.get("/")
 async def root():
