@@ -45,27 +45,20 @@ class GoogleCalendarUtils:
 
     def authenticate(self):
         """
-        Authenticate the user with Google OAuth2 and initialize the Calendar API service.
+        Authenticate with Google Calendar using environment variables.
         """
-        creds_info = get_credentials_info()
-        
-        if os.path.exists('token.json'):
-            with open('token.json', 'r') as token:
-                token_data = json.load(token)
-                self.creds = Credentials.from_authorized_user_info(token_data)
+        # Get credentials from environment variables
+        token_data = {
+            'token': os.getenv('GOOGLE_ACCESS_TOKEN'),
+            'refresh_token': os.getenv('GOOGLE_REFRESH_TOKEN'),
+            'token_uri': os.getenv('GOOGLE_TOKEN_URI', 'https://oauth2.googleapis.com/token'),
+            'client_id': os.getenv('GOOGLE_CLIENT_ID'),
+            'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
+            'scopes': ['https://www.googleapis.com/auth/calendar']
+        }
 
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
-                self.creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_config(
-                    creds_info,
-                    ['https://www.googleapis.com/auth/calendar']
-                )
-                self.creds = flow.run_local_server(port=0)
-            
-            with open('token.json', 'w') as token:
-                token.write(self.creds.to_json())
+        self.creds = Credentials.from_authorized_user_info(token_data)
+        self.service = build('calendar', 'v3', credentials=self.creds)
 
         self.service = build('calendar', 'v3', credentials=self.creds)
 
