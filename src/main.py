@@ -31,6 +31,11 @@ async def root():
         "documentation": "https://your-domain/api/docs"
     }
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to keep the service alive"""
+    return {"status": "healthy", "timestamp": datetime.datetime.now().isoformat()}
+
 class ChatRequest(BaseModel):
     message: str
     history: list = []
