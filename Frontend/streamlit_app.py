@@ -10,7 +10,10 @@ st.set_page_config(
 )
 
 # API endpoint
-API_URL = "http://localhost:10000"  # This will be updated in deployment
+import os
+
+# Get API URL from environment variable or use default
+API_URL = os.getenv("BACKEND_URL", "http://localhost:10000")
 
 # Title and description
 st.title("CalMate - Calendar Management")
