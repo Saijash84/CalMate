@@ -8,7 +8,11 @@ from src.database import init_db
 # Initialize database
 init_db()
 
-app = FastAPI()
+app = FastAPI(
+    title="CalMate API",
+    description="API for calendar management and booking",
+    version="1.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,6 +21,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "status": "healthy",
+        "description": "CalMate API",
+        "documentation": "https://your-domain/api/docs"
+    }
 
 class ChatRequest(BaseModel):
     message: str
